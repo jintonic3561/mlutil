@@ -19,11 +19,10 @@ def set_env():
     if os.path.exists(cred_path):
         with open(cred_path, 'r') as f:
             cred = yaml.safe_load(f)
+            os.environ["SLACK_TOKEN"] = cred["slack_token"]
+            os.environ["LINE_TOKEN"] = cred["line_notify_token"]
     else:
-        cred = {"slack_token": "", "line_notify_token": ""}
-        print('cred.yaml is not found. Please create cred.yaml or set environment variables.')
-    
-    os.environ["SLACK_TOKEN"] = cred["slack_token"]
-    os.environ["LINE_TOKEN"] = cred["line_notify_token"]
+        if os.environ.get('SLACK_TOKEN') is None or os.environ.get('LINE_TOKEN') is None:
+            raise FileNotFoundError('cred.yaml is not found. Please create cred.yaml or set environment variables.')
 
 set_env()
