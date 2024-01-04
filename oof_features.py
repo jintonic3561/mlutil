@@ -16,7 +16,10 @@ import torch
 import umap
 from sklearn.ensemble import IsolationForest
 
-from mlutil.mlbase import BasicMLPDataSet, BasicMLPRegressor
+try:
+    from mlutil.mlbase import BasicMLPDataSet, BasicMLPRegressor
+except ModuleNotFoundError:
+    from .mlbase import BasicMLPDataSet, BasicMLPRegressor
 
 SEED = 42
 

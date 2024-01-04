@@ -18,7 +18,9 @@ from enum import Enum
 def slack_notify(message, channel_name):
     messages = _split_message(message)
     for i in messages:
-        _ = _post_to_slack(message=i, channel_name=channel_name)
+        res = _post_to_slack(message=i, channel_name=channel_name)
+        if res.status_code != 200:
+            print(f'Error has occurred in slack_notify:\n{res.text}')
 
 
 def line_notify(message):
