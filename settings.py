@@ -19,10 +19,12 @@ lgb_default_train_params = {
     "subsample": 1.0,
     "subsample_freq": 1,
     "min_data_in_leaf": 20,
+    "random_state": 527,
 }
 
 cb_default_train_params = {
     "iterations": 500,
-    "learning_rate": 5e-2,
+    # "learning_rate": 5e-2,
     "verbose": True,
+    "random_seed": 527,
 }

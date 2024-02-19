@@ -506,7 +506,7 @@ class MLBase(object, metaclass=MLBaseMeta):
         target_cols, pred_cols = self._get_target_pred_columns(result)
         df = result.copy()
         for index, (target_col, pred_col) in enumerate(zip(target_cols, pred_cols)):
-            df["bin"] = pd.qcut(df[pred_col], bins, labels=False)
+            df["bin"] = pd.qcut(df[pred_col], bins, labels=False, duplicates="drop")
             temp = df.groupby("bin")[[pred_col, target_col]].mean().sort_index()
             plt.plot(temp.index.values, temp[pred_col], label="pred")
             plt.plot(temp.index.values, temp[target_col], label="target")
@@ -607,9 +607,20 @@ class MLBase(object, metaclass=MLBaseMeta):
             self.plot_lift_chart(result)
             self.plot_prob_dist(result)
             target_cols, pred_cols = self._get_target_pred_columns(result)
-            log_loss = sk_metrics.log_loss(result[target_cols], result[pred_cols])
             if self.metric_type == "log_loss":
-                metric = log_loss
+                metric = sk_metrics.log_loss(result[target_cols], result[pred_cols])
+            elif self.metric_type == "auc":
+                metric = sk_metrics.roc_auc_score(
+                    result[target_cols], result[pred_cols]
+                )
+            elif self.metric_type == "f1_macro":
+                best_threshold = self._find_best_threshold(
+                    result, method="f1", average="macro"
+                )
+                target = result[self.target_col]
+                pred = (result[self.pred_col] > best_threshold).astype(int)
+                metric = sk_metrics.f1_score(target, pred, average="macro")
+                print(f"Best threshold: {best_threshold:.4f}")
             else:
                 raise NotImplementedError()
         return metric
@@ -1088,8 +1099,11 @@ class BasicLGBClassifier(BasicLGBRegressor):
             self.metric_type = "log_loss"
         elif metric == "auc":
             self.metric = self._auc_metric
-            # TODO
-            raise NotImplementedError("You should implement MLBase._calc_metric.")
+            self.metric_type = "auc"
+        elif metric == "f1_macro":
+            # 学習中のmetricはaucにし、評価時にf1とする
+            self.metric = self._auc_metric
+            self.metric_type = "f1_macro"
         else:
             if isinstance(metric, Callable):
                 self.metric = metric
@@ -1222,7 +1236,7 @@ class BasicCBRegressor(MLBase):
         if test is not None:
             raise NotImplementedError
 
-        model = cb.CatBoostRegressor(**self.train_params)
+        model = self._get_model()
         model.fit(
             train,
             eval_set=valid_pool,
@@ -1252,7 +1266,7 @@ class BasicCBRegressor(MLBase):
     def _load_model(self, path):
         if "early_stopping_rounds" in self.train_params.keys():
             _ = self.train_params.pop("early_stopping_rounds")
-        model = cb.CatBoostRegressor(**self.train_params)
+        model = self._get_model()
         model.load_model(path)
         return model
 
@@ -1261,6 +1275,9 @@ class BasicCBRegressor(MLBase):
         y = df[self.target_col].copy()
         df.drop(columns=self.target_col, inplace=True)
         return cb.Pool(df, y, cat_features=self.categorical_columns)
+    
+    def _get_model(self):
+        return cb.CatBoostRegressor(**self.train_params)
 
     def _init_metric(self, metric):
         """
@@ -1273,9 +1290,11 @@ class BasicCBRegressor(MLBase):
             self.metric_type = "corr_coef"
             raise NotImplementedError
         elif metric == "rmse":
+            self.train_params["eval_metric"] = "RMSE"
             self.metric = None
             self.metric_type = "rmse"
         elif metric == "mae":
+            self.train_params["eval_metric"] = "MAE"
             self.metric = None
             self.metric_type = "mae"
         else:
@@ -1312,6 +1331,104 @@ class BasicCBRegressor(MLBase):
         if params:
             self.train_params = {**self.train_params, **params}
 
+    def _preprocess_data(self, df, train=True):
+        df = super()._preprocess_data(df, train)
+        if self.categorical_columns:
+            df[self.categorical_columns] = (
+                df[self.categorical_columns].fillna(-1).astype("int32")
+            )
+        return df
+    
+
+class BasicCBClassifier(BasicCBRegressor):
+    regression = False
+    metric_type = "log_loss"
+
+    def __init__(
+        self,
+        header_columns,
+        ignore_columns,
+        num_class,
+        categorical_columns=[],
+        train_params={},
+        metric="auc",
+        loss="log_loss",
+        early_stopping_rounds=None,
+        experiment_name=None,
+        show_train_learning_curve=True,
+        show_valid_learning_curve=True,
+        show_test_learning_curve=False,
+    ):
+        """
+        Parameters
+        ----------
+        header_columns: List[str]
+            Feature columns used for prediction header.
+        ignore_columns: List[str]
+            Feature columns that ignore when fitting model.
+        categorical_columns: List[str], optional
+            Categorical feature columns. The default is None.
+        train_params: Dict[str, any], optional
+            LGB parameter for fitting model. The default is None.
+        metric: str, optional
+            Validation metric function. You can choice from ['rmse', 'corr_coef']. The default is 'corr_coef'.
+        loss: str, optional
+            Loss function for fit. You can choice from ['rmse', 'mae', 'corr_coef']. The default is 'rmse'.
+        corrcoef_reg_alpha: float, optional
+            Regularization coefficient used for corrcoef loss. The default is 1e-3.
+        early_stopping_rounds: int, optional
+            LGB early_stopping_rounds parameter.
+        experiment_name: str, optional
+            used for artifact saving directory name.
+        show_train_learning_curve: bool, optional
+            If True, plot learning curve of training data. The default is True.
+        show_valid_learning_curve: bool, optional
+            If True, plot learning curve of validation data. The default is True.
+        show_test_learning_curve: bool, optional
+            If True, plot learning curve of test data. The default is False.
+        """
+
+        if num_class > 2:
+            # TODO
+            raise NotImplementedError
+        self.num_class = num_class
+        super().__init__(
+            header_columns=header_columns,
+            ignore_columns=ignore_columns,
+            categorical_columns=categorical_columns,
+            train_params=train_params,
+            metric=metric,
+            loss=loss,
+            early_stopping_rounds=early_stopping_rounds,
+            experiment_name=experiment_name,
+            show_train_learning_curve=show_train_learning_curve,
+            show_valid_learning_curve=show_valid_learning_curve,
+            show_test_learning_curve=show_test_learning_curve,
+        )
+
+    def _get_model(self):
+        return cb.CatBoostClassifier(**self.train_params)
+
+    def _predict(self, model, features):
+        df = self._preprocess_data(features, train=False)
+        return model.predict_proba(df)[:, 1]
+
+    def _init_metric(self, metric):
+        if metric == "auc":
+            self.train_params["eval_metric"] = "AUC"
+            self.metric_type = "auc"
+        elif metric == "log_loss":
+            self.train_params["eval_metric"] = "Logloss"
+            self.metric_type = "log_loss"
+        else:
+            raise NotImplementedError
+
+    def _init_loss(self, loss):
+        if loss == "log_loss":
+            self.train_params["loss_function"] = "Logloss"
+        else:
+            raise NotImplementedError
+
 
 class BasicMLPRegressor(MLBase):
     model_base_name = "mlp"
@@ -1337,7 +1454,7 @@ class BasicMLPRegressor(MLBase):
         learning_rate=1e-3,
         epochs=30,
         batch_size=128,
-        tabnet_params={},
+        num_layers=4,
         early_stopping_rounds=None,
         checkpoint_metric="metric",
         dropout_rate=0.3,
@@ -1388,8 +1505,8 @@ class BasicMLPRegressor(MLBase):
             Training epochs. The default is 5.
         batch_size: int, optional
             Training batch size. The default is 128.
-        tabnet_params: dict, optional
-            Paramaters for Tabnet module. The default is {}.
+        num_klayers: int, optional
+            The number of layers. The default is 4.
         early_stopping_rounds: int, optional
             LGB early_stopping_rounds parameter. The default is None. This function is not yet implemented.
         checkpoint_metric: str, optional
@@ -1433,7 +1550,7 @@ class BasicMLPRegressor(MLBase):
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.batch_size = batch_size
-        self.tabnet_params = tabnet_params
+        self.num_layers = num_layers
         self.early_stopping_rounds = early_stopping_rounds
         self.checkpoint_metric = checkpoint_metric
         self.dropout_rate = dropout_rate
@@ -1956,9 +2073,9 @@ class BasicMLPRegressor(MLBase):
             features[num_cols]
             .fillna(features[num_cols].mean())
             .fillna(-1)
-            .astype(float)
+            .astype("float32")
         )
-        features[cat_cols] = features[cat_cols].fillna(-1).astype(int)
+        features[cat_cols] = features[cat_cols].fillna(-1).astype("int32")
 
         if target_col:
             features[target_col] = labels
@@ -2006,21 +2123,22 @@ class BasicMLPClassifier(BasicMLPRegressor):
         optimizer_kwargs={},
         lr_scheduler_kwargs={},
         learning_rate=1e-3,
-        epochs=5,
+        epochs=30,
         batch_size=128,
-        tabnet_params={},
+        num_layers=4,
         early_stopping_rounds=None,
+        checkpoint_metric="metric",
         dropout_rate=0.3,
         reg_alpha=1e-3,
         reg_lambda=1e-3,
         reg_gamma=None,
         weight_clip_value=1.0,
         use_best_epoch=True,
-        model_dir=None,
-        learning_curve_dir=None,
+        experiment_name=None,
         show_train_learning_curve=True,
         show_valid_learning_curve=True,
         show_test_learning_curve=False,
+        approximate_train_metrics=True,
     ):
         """
         Parameters
@@ -2056,13 +2174,15 @@ class BasicMLPClassifier(BasicMLPRegressor):
         learning_rate: float, optional
             The leaning rate of optimizer. The default is 1e-3.
         epochs: int, optional
-            Training epochs. The default is 5.
+            Training epochs. The default is 30.
         batch_size: int, optional
             Training batch size. The default is 128.
-        tabnet_params: dict, optional
-            Paramaters for Tabnet module. The default is {}.
+        num_klayers: int, optional
+            The number of layers. The default is 4.
         early_stopping_rounds: int, optional
             LGB early_stopping_rounds parameter. The default is None. This function is not yet implemented.
+        checkpoint_metric: str, optional
+            The metric used for choose best model. You can choose from ['loss', 'metric']. The default is 'metric'.
         dropout_rate: float, optional
             dropout_rate rate. The value should be (0, 1). The default is 0.3.
         reg_alpha: float, optional
@@ -2077,16 +2197,16 @@ class BasicMLPClassifier(BasicMLPRegressor):
             The clip value of model paramater. The default is 1.0.
         use_best_epoch: bool, optional
             If True, the most high scored epoch's model used. The default is True.
-        model_dir: str, optional
-            Model saving or saved dir.
-        learning_curve_dir: str, optional
-            Saving directory for learning curve figures.
+        experiment_name: str, optional
+            used for artifact saving directory name.
         show_train_learning_curve: bool, optional
             If True, plot learning curve of training data. The default is True.
         show_valid_learning_curve: bool, optional
             If True, plot learning curve of validation data. The default is True.
         show_test_learning_curve: bool, optional
             If True, plot learning curve of test data. The default is False.
+        approximate_train_metrics: bool, optional
+            If True, approximate train metric and loss using batch mean. The default is True.
         """
 
         self.num_class = num_class
@@ -2105,19 +2225,20 @@ class BasicMLPClassifier(BasicMLPRegressor):
             learning_rate=learning_rate,
             epochs=epochs,
             batch_size=batch_size,
-            tabnet_params=tabnet_params,
+            num_layers=num_layers,
             early_stopping_rounds=early_stopping_rounds,
+            checkpoint_metric=checkpoint_metric,
             dropout_rate=dropout_rate,
             reg_alpha=reg_alpha,
             reg_lambda=reg_lambda,
             reg_gamma=reg_gamma,
             weight_clip_value=weight_clip_value,
             use_best_epoch=use_best_epoch,
-            model_dir=model_dir,
-            learning_curve_dir=learning_curve_dir,
+            experiment_name=experiment_name,
             show_train_learning_curve=show_train_learning_curve,
             show_valid_learning_curve=show_valid_learning_curve,
             show_test_learning_curve=show_test_learning_curve,
+            approximate_train_metrics=approximate_train_metrics,
         )
 
     def _init_metric(self, metric):
@@ -2277,14 +2398,14 @@ class BasicMLPModule(torch.nn.Module):
         self.output_dim = output_dim
 
         self.cat_emb_dims = self._get_cat_emb_dims(cat_emb_dims, cat_dims)
-        self.dropout = torch.nn.Dropout(dropout_rate)
+        self.dropout = torch.nn.Dropout(self.dropout_rate)
         self.embeddings = torch.nn.ModuleList(
             [
                 self._construct_cat_emb(cat_dim, emb_dim)
-                for cat_dim, emb_dim in zip(cat_dims, cat_emb_dims)
+                for cat_dim, emb_dim in zip(self.cat_dims, self.cat_emb_dims)
             ]
         )
-        self.fc = self._construct_fc(input_dim=self._get_encoded_dim(), num_layers=num_layers)
+        self.fc = self._construct_fc(input_dim=self._get_encoded_dim(), num_layers=self.num_layers)
     
 
     def _construct_cat_emb(self, cat_dim, emb_dim, padding_idx=None):
@@ -2304,6 +2425,7 @@ class BasicMLPModule(torch.nn.Module):
             dim = out_dim
         
         fc.add_module(f"fc_{i + 1}", torch.nn.Linear(dim, self.output_dim))
+        return fc
         
 
     def forward(self, num_features, cat_features):
