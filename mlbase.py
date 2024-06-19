@@ -6,7 +6,7 @@ Created on Wed Jul  6 16:25:35 2022
 @author: system01
 """
 
-# import multiprocessing as mp 
+# import multiprocessing as mp
 # import concurrent.futures as cf
 import copy
 import datetime as dt
@@ -45,9 +45,7 @@ class MLBaseMeta(type):
             if "MLBase" in base_names:
                 for i in ["fit", "_predict", "_load_model"]:
                     if not attrs.get(i):
-                        message = (
-                            f'{name} has no attribute "{i}". Define this in the class.'
-                        )
+                        message = f'{name} has no attribute "{i}". Define this in the class.'
                         raise AttributeError(message)
 
             # modelを返す関数の返り値をself properyにセット
@@ -86,15 +84,11 @@ class MLBaseMeta(type):
                 args = list(args)
                 for i in range(len(args)):
                     if isinstance(args[i], pd.DataFrame):
-                        args[i] = _drop_columns(
-                            self, df=args[i], columns=self.ignore_columns
-                        )
+                        args[i] = _drop_columns(self, df=args[i], columns=self.ignore_columns)
 
                 for key, value in kwargs.items():
                     if isinstance(value, pd.DataFrame):
-                        value = _drop_columns(
-                            self, df=value, columns=self.ignore_columns
-                        )
+                        value = _drop_columns(self, df=value, columns=self.ignore_columns)
                         kwargs[key] = value
 
                 args = tuple(args)
@@ -113,19 +107,17 @@ class MLBase(object, metaclass=MLBaseMeta):
     regression = None
     metric_type = None
 
-    def __init__(self, header_columns, ignore_columns):
+    def __init__(self, header_columns, ignore_columns, experiment_name=None):
         # Note: 両者が同じインスタンスだとtargetが両方に加わってしまう
         self.header_columns = self._to_list(copy.copy(header_columns))
         self.ignore_columns = self._to_list(copy.copy(ignore_columns))
         if self.target_col not in self.header_columns:
             self.header_columns.append(self.target_col)
+        self._init_artifact_path(experiment_name)
         assert self.model_base_name
         assert self.model_file_extention
         assert self.regression is not None
         assert self.metric_type is not None
-        self.artifact_root_dir = os.path.join(
-            os.environ["DATASET_ROOT_DIR"], "artifact"
-        )
 
     def fit(
         self,
@@ -251,9 +243,7 @@ class MLBase(object, metaclass=MLBaseMeta):
         result[self.pred_col] = self.predict(features)
         return result
 
-    def evaluate(
-        self, features: pd.DataFrame, return_prediction: bool = False
-    ) -> Tuple[float, pd.DataFrame]:
+    def evaluate(self, features: pd.DataFrame, return_prediction: bool = False) -> Tuple[float, pd.DataFrame]:
         """
         Parameters
         ----------
@@ -288,9 +278,7 @@ class MLBase(object, metaclass=MLBaseMeta):
             self._save_model(model=i, path=path)
 
     def load_model(self):
-        files = glob.glob(
-            os.path.join(self.model_dir, f"*.{self.model_file_extention}")
-        )
+        files = glob.glob(os.path.join(self.model_dir, f"*.{self.model_file_extention}"))
         files.sort()
         assert len(files) >= 1
         self.model = list(map(lambda f: self._load_model(f), files))
@@ -361,17 +349,11 @@ class MLBase(object, metaclass=MLBaseMeta):
             cv_preds.append(pred)
 
             if calc_permutation_importance:
-                result = self._calc_permutation_importance(
-                    data.valid, trial_num=permutaion_importance_tiral_num
-                )
-                importance_matrix = list(
-                    map(lambda x, y: x + y, importance_matrix, result)
-                )
+                result = self._calc_permutation_importance(data.valid, trial_num=permutaion_importance_tiral_num)
+                importance_matrix = list(map(lambda x, y: x + y, importance_matrix, result))
 
         if calc_permutation_importance:
-            permutaion_importance = self._shape_permutaion_matrix(
-                importance_matrix, feature_columns=feature_columns
-            )
+            permutaion_importance = self._shape_permutaion_matrix(importance_matrix, feature_columns=feature_columns)
         else:
             permutaion_importance = None
 
@@ -432,9 +414,7 @@ class MLBase(object, metaclass=MLBaseMeta):
                 plot_label = f"{key}'s {metric}"
                 count += 1
                 if join_ax := appeared_metrics.get(metric):
-                    join_ax.plot(
-                        array, label=plot_label, color=matplotlib.cm.Set1.colors[count]
-                    )
+                    join_ax.plot(array, label=plot_label, color=matplotlib.cm.Set1.colors[count])
                 else:
                     if first:
                         ax.plot(
@@ -453,9 +433,7 @@ class MLBase(object, metaclass=MLBaseMeta):
                             color=matplotlib.cm.Set1.colors[count],
                         )
                         ax_t.set_ylabel(metric)
-                        ax_t.spines["right"].set_position(
-                            ("axes", 1 + (count - 2) * 0.15)
-                        )
+                        ax_t.spines["right"].set_position(("axes", 1 + (count - 2) * 0.15))
                         appeared_metrics[metric] = ax_t
 
         handlers = []
@@ -464,15 +442,11 @@ class MLBase(object, metaclass=MLBaseMeta):
             handler, label = i.get_legend_handles_labels()
             handlers += handler
             labels += label
-        ax.legend(
-            handlers, labels, bbox_to_anchor=(1.1, 1), loc="upper left", borderaxespad=0
-        )
+        ax.legend(handlers, labels, bbox_to_anchor=(1.1, 1), loc="upper left", borderaxespad=0)
         if title is not None:
             plt.title(title)
         if save_fig:
-            path = self._get_new_file_path(
-                self.learning_curve_dir, base_name="lc", extention="png"
-            )
+            path = self._get_new_file_path(self.learning_curve_dir, base_name="lc", extention="png")
             plt.savefig(path)
 
         plt.show(block=False)
@@ -544,12 +518,8 @@ class MLBase(object, metaclass=MLBaseMeta):
             plt.clf()
 
     # TODO: 多値分類への対応
-    def calc_classification_metrics(
-        self, result, optimize_method="f1", average="binary"
-    ):
-        best_threshold = self._find_best_threshold(
-            result, method=optimize_method, average=average
-        )
+    def calc_classification_metrics(self, result, optimize_method="f1", average="binary"):
+        best_threshold = self._find_best_threshold(result, method=optimize_method, average=average)
         target = result[self.target_col]
         pred = (result[self.pred_col] > best_threshold).astype(int)
         cm = sk_metrics.confusion_matrix(target, pred)
@@ -588,19 +558,13 @@ class MLBase(object, metaclass=MLBaseMeta):
 
     def _calc_metric(self, result):
         if self.regression:
-            corr_coef = self.plot_corr_coef(
-                result, pred_col=self.pred_col, target_col=self.target_col
-            )
+            corr_coef = self.plot_corr_coef(result, pred_col=self.pred_col, target_col=self.target_col)
             if self.metric_type == "corr_coef":
                 metric = corr_coef
             elif self.metric_type == "rmse":
-                metric = sk_metrics.mean_squared_error(
-                    result[self.target_col], result[self.pred_col], squared=False
-                )
+                metric = sk_metrics.mean_squared_error(result[self.target_col], result[self.pred_col], squared=False)
             elif self.metric_type == "mae":
-                metric = sk_metrics.mean_absolute_error(
-                    result[self.target_col], result[self.pred_col]
-                )
+                metric = sk_metrics.mean_absolute_error(result[self.target_col], result[self.pred_col])
             else:
                 raise NotImplementedError()
         else:
@@ -610,13 +574,9 @@ class MLBase(object, metaclass=MLBaseMeta):
             if self.metric_type == "log_loss":
                 metric = sk_metrics.log_loss(result[target_cols], result[pred_cols])
             elif self.metric_type == "auc":
-                metric = sk_metrics.roc_auc_score(
-                    result[target_cols], result[pred_cols]
-                )
+                metric = sk_metrics.roc_auc_score(result[target_cols], result[pred_cols])
             elif self.metric_type == "f1_macro":
-                best_threshold = self._find_best_threshold(
-                    result, method="f1", average="macro"
-                )
+                best_threshold = self._find_best_threshold(result, method="f1", average="macro")
                 target = result[self.target_col]
                 pred = (result[self.pred_col] > best_threshold).astype(int)
                 metric = sk_metrics.f1_score(target, pred, average="macro")
@@ -655,16 +615,10 @@ class MLBase(object, metaclass=MLBaseMeta):
     def _shape_permutaion_matrix(self, importance_matrix, feature_columns):
         importance_matrix = np.array(importance_matrix)
         result = pd.DataFrame()
-        result["feature_name"] = [
-            i
-            for i in feature_columns
-            if i not in self.ignore_columns + [self.target_col]
-        ]
+        result["feature_name"] = [i for i in feature_columns if i not in self.ignore_columns + [self.target_col]]
         result["permutaion_importance_mean"] = importance_matrix.mean(axis=1)
         result["permutaion_importance_std"] = importance_matrix.std(axis=1)
-        result["lower_limit_score"] = (
-            result["permutaion_importance_mean"] - result["permutaion_importance_std"]
-        )
+        result["lower_limit_score"] = result["permutaion_importance_mean"] - result["permutaion_importance_std"]
 
         return result
 
@@ -684,16 +638,21 @@ class MLBase(object, metaclass=MLBaseMeta):
     def _ensemble_predictions(self, preds):
         return np.stack(preds, axis=0).mean(axis=0)
 
-    def _init_artifact_path(self, experiment_name):
+    def _init_artifact_path(self, experiment_name, default_root_dir="/work/data/"):
         if not experiment_name:
             today = dt.datetime.today().strftime("%Y%m%d%H%M%S")
             experiment_name = today
 
-        self.model_dir = os.path.join(self.artifact_root_dir, "model", experiment_name)
-        self.learning_curve_dir = os.path.join(
-            self.artifact_root_dir, "figure", experiment_name
-        )
-        self.oof_dir = os.path.join(self.artifact_root_dir, "oof_pred", experiment_name)
+        # for kaggle setting
+        if "DATASET_ROOT_DIR" in os.environ:
+            root_dir = os.environ["DATASET_ROOT_DIR"]
+        else:
+            root_dir = default_root_dir
+
+        self.artifact_root_dir = os.path.join(root_dir, "artifact", experiment_name)
+        self.model_dir = os.path.join(self.artifact_root_dir, "model")
+        self.learning_curve_dir = os.path.join(self.artifact_root_dir, "figure")
+        self.oof_dir = os.path.join(self.artifact_root_dir, "oof_pred")
 
         for i in [self.model_dir, self.learning_curve_dir, self.oof_dir]:
             if not os.path.exists(i):
@@ -783,9 +742,7 @@ class BasicLGBRegressor(MLBase):
         """
 
         super().__init__(header_columns=header_columns, ignore_columns=ignore_columns)
-        self.categorical_columns = (
-            categorical_columns if categorical_columns else "auto"
-        )
+        self.categorical_columns = categorical_columns if categorical_columns else "auto"
         self.corrcoef_reg_alpha = corrcoef_reg_alpha
         self.early_stopping_rounds = early_stopping_rounds
         self.use_best_iteration = self.early_stopping_rounds is not None
@@ -963,9 +920,7 @@ class BasicLGBRegressor(MLBase):
         else:
             if isinstance(metric, Callable):
                 self.metric = metric
-                print(
-                    "Information: Custom metric set. Did you implement MLBase._calc_metric function?"
-                )
+                print("Information: Custom metric set. Did you implement MLBase._calc_metric function?")
             else:
                 raise ValueError(f'Invalid metric "{metric}".')
 
@@ -1107,9 +1062,7 @@ class BasicLGBClassifier(BasicLGBRegressor):
         else:
             if isinstance(metric, Callable):
                 self.metric = metric
-                print(
-                    "Information: Custom metric set. Did you implement MLBase._calc_metric function?"
-                )
+                print("Information: Custom metric set. Did you implement MLBase._calc_metric function?")
             else:
                 raise ValueError(f'Invalid metric "{metric}".')
 
@@ -1154,10 +1107,7 @@ class LgbProgressBarCallback(object):
         if len(env.evaluation_result_list) > 0:
             # OrderedDictにしないと表示順がバラバラになって若干見にくい
             postfix = OrderedDict(
-                [
-                    (f"{entry[0]}:{entry[1]}", f"{entry[2]:.4f}")
-                    for entry in env.evaluation_result_list
-                ]
+                [(f"{entry[0]}:{entry[1]}", f"{entry[2]:.4f}") for entry in env.evaluation_result_list]
             )
             self.pbar.set_postfix(ordered_dict=postfix, refresh=False)
 
@@ -1275,7 +1225,7 @@ class BasicCBRegressor(MLBase):
         y = df[self.target_col].copy()
         df.drop(columns=self.target_col, inplace=True)
         return cb.Pool(df, y, cat_features=self.categorical_columns)
-    
+
     def _get_model(self):
         return cb.CatBoostRegressor(**self.train_params)
 
@@ -1300,9 +1250,7 @@ class BasicCBRegressor(MLBase):
         else:
             if isinstance(metric, Callable):
                 self.metric = metric
-                print(
-                    "Information: Custom metric set. Did you implement MLBase._calc_metric function?"
-                )
+                print("Information: Custom metric set. Did you implement MLBase._calc_metric function?")
             else:
                 raise ValueError(f'Invalid metric "{metric}".')
 
@@ -1334,11 +1282,9 @@ class BasicCBRegressor(MLBase):
     def _preprocess_data(self, df, train=True):
         df = super()._preprocess_data(df, train)
         if self.categorical_columns:
-            df[self.categorical_columns] = (
-                df[self.categorical_columns].fillna(-1).astype("int32")
-            )
+            df[self.categorical_columns] = df[self.categorical_columns].fillna(-1).astype("int32")
         return df
-    
+
 
 class BasicCBClassifier(BasicCBRegressor):
     regression = False
@@ -1606,9 +1552,7 @@ class BasicMLPRegressor(MLBase):
         if self.use_best_epoch:
             model = self.best_model
             self._reset_checkpoint(model_only=True)
-            best_metric = self.best_metric * (
-                -1 if self.checkpoint_metric == "loss" else 1
-            )
+            best_metric = self.best_metric * (-1 if self.checkpoint_metric == "loss" else 1)
             print(f"Best epoch: {self.best_epoch}")
             print(f"Best metric: {best_metric:.3f}")
 
@@ -1657,9 +1601,7 @@ class BasicMLPRegressor(MLBase):
 
         model.train()
         for *features, labels in train_loader:
-            loss, metric = self._train_batch(
-                *features, labels=labels, model=model, optimizer=optimizer
-            )
+            loss, metric = self._train_batch(*features, labels=labels, model=model, optimizer=optimizer)
 
             cum_loss += loss
             cum_metric += metric
@@ -1715,9 +1657,7 @@ class BasicMLPRegressor(MLBase):
         if valid_loader is not None:
             valid_loss, valid_metric = self._eval_valid_set(valid_loader, model=model)
             if self.use_best_epoch:
-                self._checkpoint(
-                    loss=valid_loss, metric=valid_metric, epoch=epoch, model=model
-                )
+                self._checkpoint(loss=valid_loss, metric=valid_metric, epoch=epoch, model=model)
             self._log_metrics(
                 epoch=epoch,
                 loss=valid_loss,
@@ -1820,14 +1760,10 @@ class BasicMLPRegressor(MLBase):
             name = name[1:]
         return name
 
-    def _log_metrics(
-        self, epoch, loss, metric, header, print_=True, append_record=True
-    ):
+    def _log_metrics(self, epoch, loss, metric, header, print_=True, append_record=True):
         metric_name = self._get_metric_name()
         if print_:
-            print(
-                f"\nepoch {epoch}   {header}_loss: {loss:.4f}   {header}_{metric_name}: {metric:.4f}"
-            )
+            print(f"\nepoch {epoch}   {header}_loss: {loss:.4f}   {header}_{metric_name}: {metric:.4f}")
         if append_record:
             self.metric_record[header]["loss"].append(loss)
             self.metric_record[header][metric_name].append(metric)
@@ -1958,17 +1894,11 @@ class BasicMLPRegressor(MLBase):
     def _init_optimizer(self, model):
         params = model.parameters()
         if self.optimizer == "adam":
-            return torch.optim.Adam(
-                params, lr=self.learning_rate, **self.optimizer_kwargs
-            )
+            return torch.optim.Adam(params, lr=self.learning_rate, **self.optimizer_kwargs)
         elif self.optimizer == "radam":
-            return torch.optim.RAdam(
-                params, lr=self.learning_rate, **self.optimizer_kwargs
-            )
+            return torch.optim.RAdam(params, lr=self.learning_rate, **self.optimizer_kwargs)
         elif self.optimizer == "sgd":
-            return torch.optim.SGD(
-                params, lr=self.learning_rate, **self.optimizer_kwargs
-            )
+            return torch.optim.SGD(params, lr=self.learning_rate, **self.optimizer_kwargs)
         else:
             raise ValueError(f'Invalid optimizer "{self.optimizer}".')
 
@@ -1981,13 +1911,9 @@ class BasicMLPRegressor(MLBase):
                 else:
                     t_0 = 10
                 self.lr_scheduler_kwargs["T_0"] = t_0
-            return scheduler.CosineAnnealingWarmRestarts(
-                optimizer=optimizer, **self.lr_scheduler_kwargs
-            )
+            return scheduler.CosineAnnealingWarmRestarts(optimizer=optimizer, **self.lr_scheduler_kwargs)
         elif self.lr_scheduler == "ReduceLROnPlateau":
-            return scheduler.ReduceLROnPlateau(
-                optimizer=optimizer, **self.lr_scheduler_kwargs
-            )
+            return scheduler.ReduceLROnPlateau(optimizer=optimizer, **self.lr_scheduler_kwargs)
         else:
             raise ValueError(f'Invalid lr_scheduler "{self.lr_scheduler}".')
 
@@ -2069,12 +1995,7 @@ class BasicMLPRegressor(MLBase):
             target_col=target_col,
             ignore_cols=self.ignore_columns,
         )
-        features[num_cols] = (
-            features[num_cols]
-            .fillna(features[num_cols].mean())
-            .fillna(-1)
-            .astype("float32")
-        )
+        features[num_cols] = features[num_cols].fillna(features[num_cols].mean()).fillna(-1).astype("float32")
         features[cat_cols] = features[cat_cols].fillna(-1).astype("int32")
 
         if target_col:
@@ -2091,9 +2012,7 @@ class BasicMLPRegressor(MLBase):
     @classmethod
     def _get_numerical_columns(cls, df, cat_cols, target_col, ignore_cols=[]):
         ignore_columns = cat_cols + ignore_cols + ([target_col] if target_col else [])
-        condition = (
-            lambda col: col not in ignore_columns and str(df[col].dtype) != "object"
-        )
+        condition = lambda col: col not in ignore_columns and str(df[col].dtype) != "object"
         return [i for i in df.columns if condition(i)]
 
     @classmethod
@@ -2267,9 +2186,7 @@ class BasicMLPClassifier(BasicMLPRegressor):
         if label_smoothing:
             logit = torch.nn.Sigmoid()(pred)
             logit = logit.clamp(eps, 1.0 - eps)
-            loss = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing)(
-                logit, label
-            )
+            loss = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing)(logit, label)
         else:
             loss = torch.nn.BCEWithLogitsLoss()(pred, label)
         return loss
@@ -2280,9 +2197,7 @@ class BasicMLPClassifier(BasicMLPRegressor):
             gamma = 1.0
         logit = torch.nn.Sigmoid()(pred)
         logit = logit.clamp(eps, 1.0 - eps)
-        loss = -((1 - logit) ** gamma) * label * torch.log(logit) - logit**gamma * (
-            1 - label
-        ) * torch.log(1 - logit)
+        loss = -((1 - logit) ** gamma) * label * torch.log(logit) - logit**gamma * (1 - label) * torch.log(1 - logit)
         return loss.mean()
 
     # TODO: 多クラス分類対応
@@ -2400,19 +2315,13 @@ class BasicMLPModule(torch.nn.Module):
         self.cat_emb_dims = self._get_cat_emb_dims(cat_emb_dims, cat_dims)
         self.dropout = torch.nn.Dropout(self.dropout_rate)
         self.embeddings = torch.nn.ModuleList(
-            [
-                self._construct_cat_emb(cat_dim, emb_dim)
-                for cat_dim, emb_dim in zip(self.cat_dims, self.cat_emb_dims)
-            ]
+            [self._construct_cat_emb(cat_dim, emb_dim) for cat_dim, emb_dim in zip(self.cat_dims, self.cat_emb_dims)]
         )
         self.fc = self._construct_fc(input_dim=self._get_encoded_dim(), num_layers=self.num_layers)
-    
 
     def _construct_cat_emb(self, cat_dim, emb_dim, padding_idx=None):
-        return torch.nn.Embedding(
-            num_embeddings=cat_dim, embedding_dim=emb_dim, padding_idx=padding_idx
-        )
-    
+        return torch.nn.Embedding(num_embeddings=cat_dim, embedding_dim=emb_dim, padding_idx=padding_idx)
+
     def _construct_fc(self, input_dim, num_layers):
         fc = torch.nn.Sequential()
         dim = copy.deepcopy(input_dim)
@@ -2423,10 +2332,9 @@ class BasicMLPModule(torch.nn.Module):
 
             fc.add_module(f"fc_{i}", torch.nn.Linear(dim, out_dim))
             dim = out_dim
-        
+
         fc.add_module(f"fc_{i + 1}", torch.nn.Linear(dim, self.output_dim))
         return fc
-        
 
     def forward(self, num_features, cat_features):
         x = self._feature_encoder(num_features, cat_features)
@@ -2444,16 +2352,13 @@ class BasicMLPModule(torch.nn.Module):
 
     def _get_encoded_dim(self):
         return self.feature_dim + sum(self.cat_emb_dims) - len(self.cat_emb_dims)
-    
+
     def _get_cat_emb_dims(self, cat_emb_dims, cat_dims):
         if cat_emb_dims:
             return cat_emb_dims
         else:
             return [max(2, int(np.log2(i))) for i in cat_dims]
 
-        
-    
-    
 
 class MLPParamaters:
     def __init__(self, **kwargs):
@@ -2578,9 +2483,7 @@ class BasicSKLearnRegressor(MLBase):
         else:
             if isinstance(metric, Callable):
                 self.metric = metric
-                print(
-                    "Information: Custom metric set. Did you implement MLBase._calc_metric function?"
-                )
+                print("Information: Custom metric set. Did you implement MLBase._calc_metric function?")
             else:
                 raise ValueError(f'Invalid metric "{metric}".')
 
