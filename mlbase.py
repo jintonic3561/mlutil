@@ -107,13 +107,13 @@ class MLBase(object, metaclass=MLBaseMeta):
     regression = None
     metric_type = None
 
-    def __init__(self, header_columns, ignore_columns, experiment_name=None):
+    def __init__(self, header_columns, ignore_columns, experiment_id):
         # Note: 両者が同じインスタンスだとtargetが両方に加わってしまう
         self.header_columns = self._to_list(copy.copy(header_columns))
         self.ignore_columns = self._to_list(copy.copy(ignore_columns))
         if self.target_col not in self.header_columns:
             self.header_columns.append(self.target_col)
-        self._init_artifact_path(experiment_name)
+        self._init_artifact_path(experiment_id)
         assert self.model_base_name
         assert self.model_file_extention
         assert self.regression is not None
@@ -343,7 +343,7 @@ class MLBase(object, metaclass=MLBaseMeta):
             del train
             metric, pred = self.evaluate(valid, return_prediction=True)
             del valid
-            print(f"CV fold {index} metric: {metric:.4f}")
+            print(f"CV fold {index} metric: {metric}")
             pred.insert(0, "cv_id", index)
             metrics.append(metric)
             cv_preds.append(pred)
@@ -358,7 +358,7 @@ class MLBase(object, metaclass=MLBaseMeta):
             permutaion_importance = None
 
         print("CV result:")
-        print(f"raw: {[round(i, 4) for i in metrics]}")
+        print(f"raw: {metrics}")
         # print(f'mean: {np.array(metrics).mean():.4f}')
         # print(f'std: {np.array(metrics).std():.4f}')
         # print(f"sharpe: {np.array(metrics).mean() / np.array(metrics).std() + 1:.4f}")
@@ -638,10 +638,10 @@ class MLBase(object, metaclass=MLBaseMeta):
     def _ensemble_predictions(self, preds):
         return np.stack(preds, axis=0).mean(axis=0)
 
-    def _init_artifact_path(self, experiment_name, default_root_dir="/work/data/"):
-        if not experiment_name:
+    def _init_artifact_path(self, experiment_id, default_root_dir="/work/data/experiment"):
+        if not experiment_id:
             today = dt.datetime.today().strftime("%Y%m%d%H%M%S")
-            experiment_name = today
+            experiment_id = today
 
         # for kaggle setting
         if "DATASET_ROOT_DIR" in os.environ:
@@ -649,10 +649,10 @@ class MLBase(object, metaclass=MLBaseMeta):
         else:
             root_dir = default_root_dir
 
-        self.artifact_root_dir = os.path.join(root_dir, "artifact", experiment_name)
+        self.artifact_root_dir = os.path.join(root_dir, "artifact", experiment_id)
         self.model_dir = os.path.join(self.artifact_root_dir, "model")
         self.learning_curve_dir = os.path.join(self.artifact_root_dir, "figure")
-        self.oof_dir = os.path.join(self.artifact_root_dir, "oof_pred")
+        self.oof_dir = os.path.join(self.artifact_root_dir, "oof")
 
         for i in [self.model_dir, self.learning_curve_dir, self.oof_dir]:
             if not os.path.exists(i):
@@ -698,13 +698,13 @@ class BasicLGBRegressor(MLBase):
         self,
         header_columns,
         ignore_columns,
+        experiment_id,
         categorical_columns=[],
         train_params={},
         metric="corr_coef",
         loss="rmse",
         corrcoef_reg_alpha=1e-3,
         early_stopping_rounds=None,
-        experiment_name=None,
         show_train_learning_curve=True,
         show_valid_learning_curve=True,
         show_test_learning_curve=False,
@@ -741,7 +741,7 @@ class BasicLGBRegressor(MLBase):
             If True, use GPU for training. The default is True.
         """
 
-        super().__init__(header_columns=header_columns, ignore_columns=ignore_columns)
+        super().__init__(header_columns=header_columns, ignore_columns=ignore_columns, experiment_id=experiment_id)
         self.categorical_columns = categorical_columns if categorical_columns else "auto"
         self.corrcoef_reg_alpha = corrcoef_reg_alpha
         self.early_stopping_rounds = early_stopping_rounds
@@ -759,7 +759,6 @@ class BasicLGBRegressor(MLBase):
             "verbosity": -1,
         }
         self._set_train_params(params=train_params)
-        self._init_artifact_path(experiment_name=experiment_name)
         self._init_metric(metric)
         self._init_loss(loss)
         self.weights = None
