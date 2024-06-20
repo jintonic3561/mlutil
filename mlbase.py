@@ -385,7 +385,6 @@ class MLBase(object, metaclass=MLBaseMeta):
     def plot_learning_curve(
         self,
         metric_dict: dict,
-        title: Optional[str] = "Learning Curve",
         save_fig: bool = True,
     ):
         """
@@ -403,54 +402,31 @@ class MLBase(object, metaclass=MLBaseMeta):
 
         """
 
-        fig, ax = plt.subplots()
-        first = True
-        count = 0
-        appeared_metrics = {}
-        for key, value in metric_dict.items():
-            for metric, array in value.items():
-                if metric[0] == "_":
-                    metric = metric[1:]
-                plot_label = f"{key}'s {metric}"
-                count += 1
-                if join_ax := appeared_metrics.get(metric):
-                    join_ax.plot(array, label=plot_label, color=matplotlib.cm.Set1.colors[count])
+        metrics = {}
+        for data_type, metric_dict in metric_dict.items():
+            for metric_name, metric_array in metric_dict.items():
+                if metric_name[0] == "_":
+                    metric_name = metric_name[1:]
+
+                if key := metrics.get(metric_name):
+                    key[data_type] = metric_array
                 else:
-                    if first:
-                        ax.plot(
-                            array,
-                            label=plot_label,
-                            color=matplotlib.cm.Set1.colors[count],
-                        )
-                        ax.set_ylabel(metric)
-                        appeared_metrics[metric] = ax
-                        first = False
-                    else:
-                        ax_t = ax.twinx()
-                        ax_t.plot(
-                            array,
-                            label=plot_label,
-                            color=matplotlib.cm.Set1.colors[count],
-                        )
-                        ax_t.set_ylabel(metric)
-                        ax_t.spines["right"].set_position(("axes", 1 + (count - 2) * 0.15))
-                        appeared_metrics[metric] = ax_t
+                    metrics[metric_name] = {data_type: metric_array}
 
-        handlers = []
-        labels = []
-        for i in appeared_metrics.values():
-            handler, label = i.get_legend_handles_labels()
-            handlers += handler
-            labels += label
-        ax.legend(handlers, labels, bbox_to_anchor=(1.1, 1), loc="upper left", borderaxespad=0)
-        if title is not None:
-            plt.title(title)
-        if save_fig:
-            path = self._get_new_file_path(self.learning_curve_dir, base_name="lc", extention="png")
-            plt.savefig(path)
+        for metric_name, metric_dict in metrics.items():
+            for data_type, array in metric_dict.items():
+                plt.plot(array, label=data_type)
 
-        plt.show(block=False)
-        plt.clf()
+            plt.xlabel("iteration")
+            plt.ylabel(metric_name)
+            plt.title(f"{metric_name} Learning Curve")
+            plt.legend()
+            if save_fig:
+                path = self._get_new_file_path(self.learning_curve_dir, base_name=f"{metric_name}_lc", extention="png")
+                plt.savefig(path)
+
+            plt.show(block=False)
+            plt.clf()
 
     def plot_corr_coef(self, result, pred_col, target_col):
         corr_coef = np.corrcoef(result[pred_col], result[target_col])[0][1]
