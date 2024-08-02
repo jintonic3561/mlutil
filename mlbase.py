@@ -728,7 +728,6 @@ class BasicLGBRegressor(MLBase):
 
         self.core_params = {
             "task": "train",
-            "objective": "regression",
             "metric": "None",
             "device": "gpu" if use_gpu else "cpu",
             "boosting_type": "gbdt",
@@ -796,7 +795,7 @@ class BasicLGBRegressor(MLBase):
     def _load_model(self, path):
         return lgb.Booster(model_file=path)
 
-    def make_datasets(self, df, reference=None):
+    def make_datasets(self, df, reference=None, init_score=None):
         train = reference is None
         df = self._date_to_int(df)
         df = self._preprocess_data(df, train=train)
@@ -812,6 +811,7 @@ class BasicLGBRegressor(MLBase):
             weight=self.weights if train else None,
             reference=reference,
             free_raw_data=False,
+            init_score=init_score,
         )
         return ds
 
