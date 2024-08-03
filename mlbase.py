@@ -736,7 +736,6 @@ class BasicLGBRegressor(MLBase):
         self._set_train_params(params=train_params)
         self._init_metric(metric)
         self._init_loss(loss)
-        self.weights = None
 
     def fit(self, train, valid=None, test=None, save_model=False):
         params = dict(**self.core_params, **self.train_params)
@@ -795,7 +794,7 @@ class BasicLGBRegressor(MLBase):
     def _load_model(self, path):
         return lgb.Booster(model_file=path)
 
-    def make_datasets(self, df, reference=None, init_score=None):
+    def make_datasets(self, df, reference=None, init_score=None, weight=None):
         train = reference is None
         df = self._date_to_int(df)
         df = self._preprocess_data(df, train=train)
@@ -808,7 +807,7 @@ class BasicLGBRegressor(MLBase):
             y,
             params=params,
             categorical_feature=self.categorical_columns,
-            weight=self.weights if train else None,
+            weight=weight,
             reference=reference,
             free_raw_data=False,
             init_score=init_score,
@@ -994,8 +993,11 @@ class BasicLGBClassifier(BasicLGBRegressor):
 
     def make_datasets(self, df, reference=None):
         if self.use_weights and reference is None:
-            self.weights = self._calc_weights(df)
-        return super().make_datasets(df, reference=reference)
+            weight = self._calc_weights(df)
+        else:
+            weight = None
+
+        return super().make_datasets(df, reference=reference, weight=weight)
 
     def _calc_weights(self, train):
         counts = train[self.target_col].value_counts()
