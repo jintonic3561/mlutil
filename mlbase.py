@@ -1363,6 +1363,7 @@ class BasicMLPRegressor(MLBase):
 
     def __init__(
         self,
+        experiment_id,
         header_columns,
         ignore_columns,
         categorical_columns=[],
@@ -1387,7 +1388,6 @@ class BasicMLPRegressor(MLBase):
         corrcoef_reg_alpha=1e-3,
         weight_clip_value=1.0,
         use_best_epoch=True,
-        experiment_name=None,
         show_train_learning_curve=True,
         show_valid_learning_curve=True,
         show_test_learning_curve=False,
@@ -1462,7 +1462,7 @@ class BasicMLPRegressor(MLBase):
             If True, approximate train metric and loss using batch mean. The default is True.
         """
 
-        super().__init__(header_columns=header_columns, ignore_columns=ignore_columns)
+        super().__init__(header_columns=header_columns, ignore_columns=ignore_columns, experiment_id=experiment_id)
         self.categorical_columns = categorical_columns
         self.cat_emb_dims = cat_emb_dims
         self.optimizer = optimizer
@@ -1488,7 +1488,6 @@ class BasicMLPRegressor(MLBase):
         self.show_test_learning_curve = show_test_learning_curve
         self.approximate_train_metrics = approximate_train_metrics
 
-        self._init_artifact_path(experiment_name=experiment_name)
         self._init_metric(metric)
         self._init_loss(loss)
 
@@ -1496,12 +1495,12 @@ class BasicMLPRegressor(MLBase):
         torch.backends.cudnn.deterministic = True
 
     def fit(self, train, valid=None, test=None, save_model=False):
-        train_set, train_loader = self._get_ds_and_loader(train, shuffle=True)
+        train_set, train_loader = self._get_ds_and_loader(train, shuffle=True, infer=False)
         steps_per_epoch = train_set.steps_per_epoch
         if valid is not None:
-            _, valid_loader = self._get_ds_and_loader(valid, shuffle=False)
+            _, valid_loader = self._get_ds_and_loader(valid, shuffle=False, infer=False)
         if test is not None:
-            _, test_loader = self._get_ds_and_loader(test, shuffle=False)
+            _, test_loader = self._get_ds_and_loader(test, shuffle=False, infer=False)
 
         model = self._get_model(train_set=train_set)
         model.to(self._get_device())
@@ -1551,11 +1550,11 @@ class BasicMLPRegressor(MLBase):
         self._clear_gpu_cache()
         return model
 
-    def _get_ds_and_loader(self, df, shuffle):
+    def _get_ds_and_loader(self, df, shuffle, infer):
         data_set = self._get_data_set(
-            self._preprocess_data(df, target_col=self.target_col),
-            target_col=self.target_col,
+            self._preprocess_data(df),
             shuffle=shuffle,
+            infer=infer,
         )
         data_loader = data_set.get_data_loader()
         return data_set, data_loader
@@ -1763,12 +1762,7 @@ class BasicMLPRegressor(MLBase):
             self.best_epoch = epoch
 
     def _predict(self, model, features):
-        data_set = self._get_data_set(
-            self._preprocess_data(features, target_col=None),
-            target_col=None,
-            shuffle=False,
-        )
-        data_loader = data_set.get_data_loader()
+        _, data_loader = self._get_ds_and_loader(features, shuffle=False, infer=True)
         model.eval()
         model.to(self._get_device())
         preds = []
@@ -1949,19 +1943,21 @@ class BasicMLPRegressor(MLBase):
             num_layers=self.num_layers,
         )
 
-    def _get_data_set(self, df, target_col, shuffle):
+    def _get_data_set(self, df, shuffle, infer):
         return BasicMLPDataSet(
             df,
-            target_col=target_col,
+            target_col=self.target_col,
             batch_size=self.batch_size,
             shuffle=shuffle,
+            infer=infer,
             categorical_columns=self.categorical_columns,
         )
 
-    def _preprocess_data(self, df, target_col):
-        if target_col:
-            labels = df[target_col]
-            features = df.drop(columns=target_col)
+    def _preprocess_data(self, df):
+        has_target = self.target_col in df.columns
+        if has_target:
+            labels = df[self.target_col].copy()
+            features = df.drop(columns=self.target_col)
         else:
             features = df.copy()
 
@@ -1969,15 +1965,15 @@ class BasicMLPRegressor(MLBase):
         num_cols = self._get_numerical_columns(
             df,
             cat_cols=cat_cols,
-            target_col=target_col,
+            target_col=self.target_col,
             ignore_cols=self.ignore_columns,
         )
         features[num_cols] = features[num_cols].fillna(features[num_cols].mean()).fillna(-1).astype("float32")
         features[cat_cols] = features[cat_cols].fillna(-1).astype("int32")
 
-        if target_col:
-            features[target_col] = labels
-            features = features.dropna(subset=[target_col])
+        if has_target:
+            features[self.target_col] = labels
+            features = features.dropna(subset=[self.target_col])
 
         return features
 
@@ -1988,7 +1984,7 @@ class BasicMLPRegressor(MLBase):
 
     @classmethod
     def _get_numerical_columns(cls, df, cat_cols, target_col, ignore_cols=[]):
-        ignore_columns = cat_cols + ignore_cols + ([target_col] if target_col else [])
+        ignore_columns = cat_cols + ignore_cols + [target_col]
         condition = lambda col: col not in ignore_columns and str(df[col].dtype) != "object"
         return [i for i in df.columns if condition(i)]
 
@@ -2192,18 +2188,20 @@ class BasicMLPDataSet(torch.utils.data.Dataset):
         target_col,
         batch_size,
         shuffle,
+        infer=False,
         categorical_columns=[],
         ignore_columns=[],
     ):
+        self.target_col = target_col
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.infer = infer
         self._set_feature_columns(
             df,
-            target_col=target_col,
             cat_cols=categorical_columns,
             ignore_cols=ignore_columns,
         )
-        self._set_feature_array(df, target_col=target_col)
+        self._set_feature_array(df)
         self._set_data_length(df)
         self._set_steps_per_epoch()
         self._set_cat_dims()
@@ -2214,7 +2212,7 @@ class BasicMLPDataSet(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         num_features = self._get_tensor(self.num_features[idx, ...], dtype=torch.float)
         cat_features = self._get_tensor(self.cat_features[idx, ...], dtype=torch.int)
-        if self.targets is None:
+        if self.infer:
             return num_features, cat_features
         else:
             targets = self._get_tensor(self.targets[idx, ...], dtype=torch.float)
@@ -2239,18 +2237,17 @@ class BasicMLPDataSet(torch.utils.data.Dataset):
             # persistent_workers=True,
         )
 
-    def _set_feature_columns(self, df, target_col, cat_cols, ignore_cols):
+    def _set_feature_columns(self, df, cat_cols, ignore_cols):
         self.cat_cols = cat_cols
         self.num_cols = BasicMLPRegressor._get_numerical_columns(
-            df, cat_cols=cat_cols, target_col=target_col, ignore_cols=ignore_cols
+            df, cat_cols=cat_cols, target_col=self.target_col, ignore_cols=ignore_cols
         )
-        self.target_col = target_col
         self.feature_dim = len(self.cat_cols) + len(self.num_cols)
 
-    def _set_feature_array(self, df, target_col):
+    def _set_feature_array(self, df):
         self.num_features = df[self.num_cols].values
         self.cat_features = df[self.cat_cols].values
-        self.targets = df[[target_col]].values if target_col else None
+        self.targets = df[[self.target_col]].values if not self.infer else None
 
     def _set_cat_dims(self):
         self.cat_dims = []
